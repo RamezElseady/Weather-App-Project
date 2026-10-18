@@ -29,7 +29,7 @@ def home():
     REQUEST_COUNT.labels(endpoint='/').inc()
     weather_data = None
     error = None
-    city = 'Cairo'  # المدينة الافتراضية
+    city = 'Cairo'  
     
     if request.method == 'POST':
         city = request.form.get('city', 'Cairo')
