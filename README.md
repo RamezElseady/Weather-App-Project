@@ -4,7 +4,7 @@ A production-ready DevOps project showcasing a Python (Flask) Weather Forecastin
 
 ---
 
-## 🏗️ Architecture & System Workflow
+## 🏗️ Architecture & System Workflow 
 
 ```
 [ Developer ] ➔ Push Code ➔ [ GitLab CI/CD Pipeline ]
