@@ -1,58 +1,54 @@
-import os
-import time
-from flask import Flask, jsonify, request
+from flask import Flask, render_template, request, jsonify
 import requests
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import os
+from prometheus_client import Counter, generate_latest
 
 app = Flask(__name__)
 
-# إعداد Prometheus Metrics للمراقبة
-REQUEST_COUNT = Counter(
-    'app_request_total', 'Total Request Count', ['method', 'endpoint', 'http_status']
-)
-REQUEST_LATENCY = Histogram(
-    'app_request_latency_seconds', 'Request latency', ['endpoint']
-)
+REQUEST_COUNT = Counter('weather_app_requests_total', 'Total Weather App Requests', ['endpoint'])
 
-# بيانات RapidAPI (يفضل لاحقاً نتحكم فيها عبر Environment Variables)
-RAPIDAPI_KEY = os.environ.get('RAPIDAPI_KEY', 'YOUR_RAPIDAPI_KEY_HERE')
-RAPIDAPI_HOST = os.environ.get('RAPIDAPI_HOST', 'weatherapi-com.p.rapidapi.com')
+RAPIDAPI_KEY = os.getenv('RAPIDAPI_KEY', '')
 
-@app.route('/weather', methods=['GET'])
-def get_weather():
-    start_time = time.time()
-    city = request.args.get('city', 'Cairo')
-    
-    url = f"https://{RAPIDAPI_HOST}/current.json"
+def get_weather_data(city):
+    url = "https://weatherapi-com.p.rapidapi.com/current.json"
     querystring = {"q": city}
-    
     headers = {
         "x-rapidapi-key": RAPIDAPI_KEY,
-        "x-rapidapi-host": RAPIDAPI_HOST
+        "x-rapidapi-host": "weatherapi-com.p.rapidapi.com"
     }
-    
     try:
         response = requests.get(url, headers=headers, params=querystring)
-        status_code = response.status_code
-        
-        # تسجيل الـ Metrics
-        resp_time = time.time() - start_time
-        REQUEST_LATENCY.labels(endpoint='/weather').observe(resp_time)
-        REQUEST_COUNT.labels(method='GET', endpoint='/weather', http_status=status_code).inc()
-        
-        if status_code == 200:
-            return jsonify(response.json())
-        else:
-            return jsonify({"error": "Failed to fetch data from RapidAPI", "details": response.text}), status_code
-            
+        if response.status_code == 200:
+            return response.json(), None
+        return None, "City not found or API error."
     except Exception as e:
-        REQUEST_COUNT.labels(method='GET', endpoint='/weather', http_status=500).inc()
-        return jsonify({"error": str(e)}), 500
+        return None, str(e)
 
-# Endpoint مخصص عشان Prometheus يقدر يقرا المتركس منه
-@app.route('/metrics', methods=['GET'])
+@app.route('/', methods=['GET', 'POST'])
+def home():
+    REQUEST_COUNT.labels(endpoint='/').inc()
+    weather_data = None
+    error = None
+    city = 'Cairo'  # المدينة الافتراضية
+    
+    if request.method == 'POST':
+        city = request.form.get('city', 'Cairo')
+    
+    weather_data, error = get_weather_data(city)
+    return render_template('index.html', weather=weather_data, error=error, city=city)
+
+@app.route('/weather', methods=['GET'])
+def weather_api():
+    REQUEST_COUNT.labels(endpoint='/weather').inc()
+    city = request.args.get('city', 'Cairo')
+    data, error = get_weather_data(city)
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify(data)
+
+@app.route('/metrics')
 def metrics():
-    return generate_latest(), 200, {'Content-Type': CONTENT_TYPE_LATEST}
+    return generate_latest(), 200, {'Content-Type': 'text/plain; charset=utf-8'}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
