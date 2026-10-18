@@ -1,0 +1,40 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  DOCKER_IMAGE_NAME: weather-app
+
+build_image:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    # بناء الصورة وربطها بريجستري GitLab الخاص بمشروعك
+    - docker build -t $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$CI_COMMIT_SHA .
+    - docker build -t $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:latest .
+    # رفع الصورة
+    - docker push $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:$CI_COMMIT_SHA
+    - docker push $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+deploy_to_ec2:
+  stage: deploy
+  image: alpine:latest
+  before_script:
+    - 'which ssh-agent || ( apk add --update openssh )'
+    - eval $(ssh-agent -s)
+    # هنا هنربط مفتاح السيرفر الخاص بـ AWS لاحقاً
+    - echo "$EC2_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+  script:
+    - echo "Deploying to AWS EC2..."
+    # الاتصال بسيرفر الـ EC2 وسحب الصورة الجديدة وتشغيلها
+    - ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' $CI_REGISTRY && docker pull $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:latest && docker stop weather-app || true && docker rm weather-app || true && docker run -d --name weather-app -p 5000:5000 -e RAPIDAPI_KEY='$RAPIDAPI_KEY' $CI_REGISTRY_IMAGE/$DOCKER_IMAGE_NAME:latest"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
